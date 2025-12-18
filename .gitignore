@@ -42,12 +42,11 @@ checkpoints/
 *.bin
 *.safetensors
 
-# Data and results (keep data/dataloader.py, exclude data files)
+# Data and results
 *.json
 !package.json
 !tsconfig.json
-data/*
-!data/*.py
+data/
 *.csv
 *.parquet
 

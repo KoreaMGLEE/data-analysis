@@ -236,7 +236,7 @@ def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-14m")
-    parser.add_argument("--output_dir", type=str, default="./checkpoints/pythia-30m-mnli")
+    parser.add_argument("--output_dir", type=str, default="./checkpoints/pythia-14m-mnli")
     parser.add_argument("--num_epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
