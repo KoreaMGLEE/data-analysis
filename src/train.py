@@ -54,7 +54,7 @@ def train_model(
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float32,
+        dtype=torch.float32,
     )
     
     print("Loading MNLI training data...")
