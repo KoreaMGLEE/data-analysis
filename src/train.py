@@ -40,6 +40,7 @@ def train_model(
     train_limit=None,  # 디버깅용: 훈련 데이터 제한
     save_steps=500,
     eval_steps=500,
+    eval_strategy="epoch",  # "steps" 또는 "epoch"
     num_proc=None,  # 토크나이징 멀티프로세싱 프로세스 수 (None이면 CPU 코어 수 사용)
     tokenize_batch_size=1000,  # 배치 토크나이징에 사용할 배치 크기
 ):
@@ -87,8 +88,8 @@ def train_model(
         learning_rate=learning_rate,
         logging_steps=100,
         save_steps=save_steps,
-        eval_steps=eval_steps,
-        eval_strategy="steps",
+        eval_steps=eval_steps if eval_strategy == "steps" else None,
+        eval_strategy=eval_strategy,  # "steps" 또는 "epoch"
         save_total_limit=2,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
@@ -254,6 +255,9 @@ def main():
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to existing checkpoint")
     parser.add_argument("--num_proc", type=int, default=8, help="Number of processes for tokenization (None = use all CPU cores)")
     parser.add_argument("--tokenize_batch_size", type=int, default=1000, help="Batch size for tokenization")
+    parser.add_argument("--eval_strategy", type=str, default="epoch", choices=["steps", "epoch"], help="Evaluation strategy: 'steps' or 'epoch'")
+    parser.add_argument("--eval_steps", type=int, default=500, help="Evaluate every N steps (only used when eval_strategy='steps')")
+    parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every N steps")
     
     args = parser.parse_args()
     
@@ -272,6 +276,9 @@ def main():
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             train_limit=args.train_limit,
+            save_steps=args.save_steps,
+            eval_steps=args.eval_steps,
+            eval_strategy=args.eval_strategy,
             num_proc=args.num_proc,
             tokenize_batch_size=args.tokenize_batch_size,
         )
