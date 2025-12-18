@@ -120,7 +120,7 @@ def load_mnli_raw(split="train", limit=None):
     return data
 
 
-def prepare_dataset(tokenizer, split="train", max_length=256, limit=None):
+def prepare_dataset(tokenizer, split="train", max_length=256, limit=None, num_proc=None):
     """
     MNLI 데이터셋을 로드하고 토크나이즈합니다.
     
@@ -129,6 +129,7 @@ def prepare_dataset(tokenizer, split="train", max_length=256, limit=None):
         split: 데이터셋 스플릿 ("train", "validation_matched", "validation_mismatched")
         max_length: 최대 시퀀스 길이
         limit: 데이터 제한 (디버깅용, None이면 전체)
+        num_proc: 멀티프로세싱에 사용할 프로세스 수 (None이면 CPU 코어 수 사용)
     
     Returns:
         tokenized: 토크나이즈된 데이터셋
@@ -136,11 +137,12 @@ def prepare_dataset(tokenizer, split="train", max_length=256, limit=None):
     # MNLI 데이터 로드
     data = load_mnli_raw(split=split, limit=limit)
     
-    # 토크나이즈
+    # 토크나이즈 (멀티프로세싱 지원)
     tokenized = data.map(
         lambda ex: tokenize_fn(ex, tokenizer, max_length=max_length),
         remove_columns=data.column_names,
-        desc=f"Tokenizing {split}"
+        desc=f"Tokenizing {split}",
+        num_proc=num_proc,
     )
     
     # label이 없는 예제 필터링

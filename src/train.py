@@ -40,6 +40,7 @@ def train_model(
     train_limit=None,  # 디버깅용: 훈련 데이터 제한
     save_steps=500,
     eval_steps=500,
+    num_proc=None,  # 토크나이징 멀티프로세싱 프로세스 수 (None이면 CPU 코어 수 사용)
 ):
     """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
     
@@ -60,7 +61,8 @@ def train_model(
         tokenizer, 
         split="train",
         max_length=max_length,
-        limit=train_limit
+        limit=train_limit,
+        num_proc=num_proc,
     )
     
     # Validation 데이터도 로드 (평가용)
@@ -69,7 +71,8 @@ def train_model(
         tokenizer,
         split="validation_matched",
         max_length=max_length,
-        limit=1000  # validation은 작은 샘플만 사용
+        limit=1000,  # validation은 작은 샘플만 사용
+        num_proc=num_proc,
     )
     
     # Training arguments
@@ -246,6 +249,7 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--skip_training", action="store_true", help="Skip training if model already exists")
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to existing checkpoint")
+    parser.add_argument("--num_proc", type=int, default=8, help="Number of processes for tokenization (None = use all CPU cores)")
     
     args = parser.parse_args()
     
@@ -264,6 +268,7 @@ def main():
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             train_limit=args.train_limit,
+            num_proc=args.num_proc,
         )
     
     # 2. 쉬운 예제 찾기
