@@ -80,14 +80,18 @@ def train_model(
     )
     
     # Training arguments
+    # load_best_model_at_end=True를 사용하려면 save_strategy와 eval_strategy가 일치해야 함
+    save_strategy = eval_strategy  # eval_strategy와 동일하게 설정
+    
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=num_train_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         learning_rate=learning_rate,
-        logging_steps=100,
-        save_steps=save_steps,
+        logging_steps=1000,
+        save_steps=save_steps if save_strategy == "steps" else None,
+        save_strategy=save_strategy,  # eval_strategy와 일치
         eval_steps=eval_steps if eval_strategy == "steps" else None,
         eval_strategy=eval_strategy,  # "steps" 또는 "epoch"
         save_total_limit=2,
