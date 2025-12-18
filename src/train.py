@@ -88,7 +88,7 @@ def train_model(
         logging_steps=100,
         save_steps=save_steps,
         eval_steps=eval_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         save_total_limit=2,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
