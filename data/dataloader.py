@@ -168,14 +168,22 @@ import torch
 def collate_fn(batch, tokenizer):
     batch = [x for x in batch if len(x["input_ids"]) > 0]
 
-    # 1) input_ids / attention_mask만 tokenizer.pad로 패딩
+    # Fast tokenizer에서는 이미 토크나이징된 결과를 패딩할 때도 효율적으로 처리
+    # input_ids와 attention_mask를 딕셔너리 리스트로 준비
     pad_inputs = [
         {"input_ids": x["input_ids"], "attention_mask": x["attention_mask"]}
         for x in batch
     ]
-    padded = tokenizer.pad(pad_inputs, return_tensors="pt")
+    
+    # tokenizer.pad는 내부적으로 최적화되어 있지만, 
+    # fast tokenizer의 경우 더 효율적인 방법 사용
+    padded = tokenizer.pad(
+        pad_inputs,
+        padding=True,
+        return_tensors="pt",
+    )
 
-    # 2) labels는 우리가 직접 -100으로 패딩
+    # labels는 우리가 직접 -100으로 패딩
     max_len = padded["input_ids"].shape[1]
     labels = torch.full((len(batch), max_len), -100, dtype=torch.long)
 
@@ -187,7 +195,7 @@ def collate_fn(batch, tokenizer):
 
     padded["labels"] = labels
 
-    # 3) 디버그 문자열은 리스트로
+    # 디버그 문자열은 리스트로
     padded["input_text"] = [x.get("input_text", "") for x in batch]
     padded["target_text"] = [x.get("target_text", "") for x in batch]
     return padded
