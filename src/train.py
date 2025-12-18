@@ -41,6 +41,7 @@ def train_model(
     save_steps=500,
     eval_steps=500,
     num_proc=None,  # 토크나이징 멀티프로세싱 프로세스 수 (None이면 CPU 코어 수 사용)
+    tokenize_batch_size=1000,  # 배치 토크나이징에 사용할 배치 크기
 ):
     """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
     
@@ -63,6 +64,7 @@ def train_model(
         max_length=max_length,
         limit=train_limit,
         num_proc=num_proc,
+        batch_size=tokenize_batch_size,
     )
     
     # Validation 데이터도 로드 (평가용)
@@ -73,6 +75,7 @@ def train_model(
         max_length=max_length,
         limit=1000,  # validation은 작은 샘플만 사용
         num_proc=num_proc,
+        batch_size=tokenize_batch_size,
     )
     
     # Training arguments
@@ -250,6 +253,7 @@ def main():
     parser.add_argument("--skip_training", action="store_true", help="Skip training if model already exists")
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to existing checkpoint")
     parser.add_argument("--num_proc", type=int, default=8, help="Number of processes for tokenization (None = use all CPU cores)")
+    parser.add_argument("--tokenize_batch_size", type=int, default=1000, help="Batch size for tokenization")
     
     args = parser.parse_args()
     
@@ -269,6 +273,7 @@ def main():
             learning_rate=args.learning_rate,
             train_limit=args.train_limit,
             num_proc=args.num_proc,
+            tokenize_batch_size=args.tokenize_batch_size,
         )
     
     # 2. 쉬운 예제 찾기

@@ -70,6 +70,99 @@ def tokenize_fn(example, tokenizer, max_length: int = 256):
         "target_text": target_text,  # debug (string)
     }
 
+
+def tokenize_fn_batch(examples, tokenizer, max_length: int = 256):
+    """
+    배치 단위로 토크나이징 (더 빠름)
+    
+    Args:
+        examples: 딕셔너리 형태의 배치 (각 값이 리스트)
+        tokenizer: 토크나이저
+        max_length: 최대 시퀀스 길이
+    
+    Returns:
+        딕셔너리 형태의 배치 결과 (각 값이 리스트)
+    """
+    premises = examples["premise"]
+    hypotheses = examples["hypothesis"]
+    labels = examples["label"]
+    
+    batch_size = len(premises)
+    
+    # 프롬프트와 전체 텍스트 생성
+    prompts = []
+    target_texts = []
+    full_texts = []
+    valid_indices = []
+    
+    for i, (premise, hypothesis, label) in enumerate(zip(premises, hypotheses, labels)):
+        if label is None or label == -1:
+            continue
+        valid_indices.append(i)
+        prompt = make_prompt(premise, hypothesis)
+        target_text = LABEL2TEXT[int(label)]
+        prompts.append(prompt)
+        target_texts.append(target_text)
+        full_texts.append(prompt + " " + target_text)
+    
+    if len(full_texts) == 0:
+        # 유효한 예제가 없는 경우
+        return {
+            "input_ids": [[]] * batch_size,
+            "attention_mask": [[]] * batch_size,
+            "labels": [[]] * batch_size,
+            "input_text": [""] * batch_size,
+            "target_text": [""] * batch_size,
+        }
+    
+    # 배치 토크나이징 (유효한 프롬프트와 전체 텍스트만)
+    prompt_tokenized = tokenizer(
+        prompts,
+        add_special_tokens=False,
+        truncation=False,
+        padding=False,
+    )
+    
+    full_tokenized = tokenizer(
+        full_texts,
+        add_special_tokens=False,
+        truncation=True,
+        max_length=max_length,
+        padding=False,
+    )
+    
+    # 결과 초기화
+    input_ids_list = [[] for _ in range(batch_size)]
+    attention_mask_list = [[] for _ in range(batch_size)]
+    labels_list = [[] for _ in range(batch_size)]
+    input_text_list = [""] * batch_size
+    target_text_list = [""] * batch_size
+    
+    # 각 유효한 예제 처리
+    for idx, valid_idx in enumerate(valid_indices):
+        prompt_ids = prompt_tokenized["input_ids"][idx]
+        full_ids = full_tokenized["input_ids"][idx]
+        full_mask = full_tokenized["attention_mask"][idx]
+        
+        # Labels 생성 및 프롬프트 부분 마스킹
+        labels = full_ids.copy()
+        prompt_len = min(len(prompt_ids), len(labels))
+        labels[:prompt_len] = [-100] * prompt_len
+        
+        input_ids_list[valid_idx] = full_ids
+        attention_mask_list[valid_idx] = full_mask
+        labels_list[valid_idx] = labels
+        input_text_list[valid_idx] = prompts[idx]
+        target_text_list[valid_idx] = target_texts[idx]
+    
+    return {
+        "input_ids": input_ids_list,
+        "attention_mask": attention_mask_list,
+        "labels": labels_list,
+        "input_text": input_text_list,
+        "target_text": target_text_list,
+    }
+
 import torch
 
 def collate_fn(batch, tokenizer):
@@ -120,7 +213,7 @@ def load_mnli_raw(split="train", limit=None):
     return data
 
 
-def prepare_dataset(tokenizer, split="train", max_length=256, limit=None, num_proc=None):
+def prepare_dataset(tokenizer, split="train", max_length=256, limit=None, num_proc=None, batch_size=1000):
     """
     MNLI 데이터셋을 로드하고 토크나이즈합니다.
     
@@ -130,6 +223,7 @@ def prepare_dataset(tokenizer, split="train", max_length=256, limit=None, num_pr
         max_length: 최대 시퀀스 길이
         limit: 데이터 제한 (디버깅용, None이면 전체)
         num_proc: 멀티프로세싱에 사용할 프로세스 수 (None이면 CPU 코어 수 사용)
+        batch_size: 배치 토크나이징에 사용할 배치 크기 (기본값: 1000)
     
     Returns:
         tokenized: 토크나이즈된 데이터셋
@@ -137,9 +231,11 @@ def prepare_dataset(tokenizer, split="train", max_length=256, limit=None, num_pr
     # MNLI 데이터 로드
     data = load_mnli_raw(split=split, limit=limit)
     
-    # 토크나이즈 (멀티프로세싱 지원)
+    # 배치 토크나이즈 (멀티프로세싱 지원)
     tokenized = data.map(
-        lambda ex: tokenize_fn(ex, tokenizer, max_length=max_length),
+        lambda ex: tokenize_fn_batch(ex, tokenizer, max_length=max_length),
+        batched=True,
+        batch_size=batch_size,
         remove_columns=data.column_names,
         desc=f"Tokenizing {split}",
         num_proc=num_proc,
