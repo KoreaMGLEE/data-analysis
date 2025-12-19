@@ -399,8 +399,8 @@ def main():
     if args.skip_training and args.checkpoint_path:
         print(f"Loading model from {args.checkpoint_path}")
         model = AutoModelForCausalLM.from_pretrained(args.checkpoint_path)
-        # tokenizer = AutoTokenizer.from_pretrained(args.checkpoint_path)
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint_path)
+        # tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     else:
         model, tokenizer, trainer, train_dataset_raw = train_model(
             model_name=args.model_name,
