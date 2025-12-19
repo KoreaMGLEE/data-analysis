@@ -215,22 +215,40 @@ def load_mnli_raw(split="train", limit=None, download_mode=None):
     """
     # 캐시 문제 해결을 위해 명시적으로 MNLI만 로드
     # download_mode가 None이면 기본값 사용, "reuse_cache_if_exists" 또는 "force_redownload" 가능
+    from datasets.builder import DatasetGenerationError
+    
     try:
         if download_mode:
             ds = load_dataset("glue", "mnli", download_mode=download_mode)
         else:
             ds = load_dataset("glue", "mnli")
-    except (ValueError, Exception) as e:
+    except (ValueError, DatasetGenerationError, Exception) as e:
         # 캐시 문제가 있는 경우 재다운로드 시도
         error_msg = str(e)
-        if "column names don't match" in error_msg or "Couldn't cast" in error_msg:
-            print(f"Warning: Cache corruption detected. Forcing redownload...")
-            print(f"Original error: {error_msg[:200]}")
+        error_type = type(e).__name__
+        
+        # 캐시 손상 감지 (다양한 에러 패턴)
+        is_cache_error = (
+            "column names don't match" in error_msg or
+            "Couldn't cast" in error_msg or
+            "DatasetGenerationError" in error_type or
+            "/ax" in error_msg or  # ax 데이터셋이 섞인 경우
+            "None/ax" in error_msg
+        )
+        
+        if is_cache_error:
+            print(f"\n⚠️  Warning: Cache corruption detected (Error type: {error_type})")
+            print(f"   Error message: {error_msg[:300]}")
+            print(f"   Attempting to force redownload of MNLI dataset...")
+            
             try:
+                # 강제 재다운로드
                 ds = load_dataset("glue", "mnli", download_mode="force_redownload")
-                print("Successfully reloaded dataset after cache clear.")
+                print("   ✓ Successfully reloaded MNLI dataset after cache clear.")
             except Exception as e2:
-                print(f"Error: Failed to reload MNLI dataset: {e2}")
+                print(f"\n   ✗ Error: Failed to reload MNLI dataset: {e2}")
+                print(f"\n   Manual fix: Try deleting cache manually:")
+                print(f"   rm -rf ~/.cache/huggingface/datasets/glue/")
                 raise
         else:
             # 다른 종류의 에러는 그대로 전파
