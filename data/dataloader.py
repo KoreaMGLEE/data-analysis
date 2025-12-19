@@ -221,14 +221,28 @@ def load_mnli_raw(split="train", limit=None, download_mode=None):
     
     def clear_glue_cache():
         """GLUE 데이터셋 캐시를 삭제합니다."""
-        cache_dir = os.path.expanduser("~/.cache/huggingface/datasets/glue")
-        if os.path.exists(cache_dir):
-            print(f"   Deleting corrupted cache: {cache_dir}")
+        cache_base = os.path.expanduser("~/.cache/huggingface/datasets")
+        glue_cache_dir = os.path.join(cache_base, "glue")
+        downloads_dir = os.path.join(cache_base, "downloads")
+        
+        # GLUE 캐시 삭제
+        if os.path.exists(glue_cache_dir):
+            print(f"   Deleting corrupted GLUE cache: {glue_cache_dir}")
             try:
-                shutil.rmtree(cache_dir)
-                print("   ✓ Cache deleted successfully")
+                shutil.rmtree(glue_cache_dir)
+                print("   ✓ GLUE cache deleted successfully")
             except Exception as e:
-                print(f"   ⚠️  Warning: Could not delete cache: {e}")
+                print(f"   ⚠️  Warning: Could not delete GLUE cache: {e}")
+        
+        # downloads 폴더에서 GLUE 관련 파일도 삭제 (손상된 파일이 있을 수 있음)
+        # 특정 해시 파일만 삭제하는 것은 복잡하므로, ax 관련 파일이 있는 경우 경고만 출력
+        if os.path.exists(downloads_dir):
+            # ax 관련 손상된 파일이 있는지 확인
+            import glob
+            ax_files = glob.glob(os.path.join(downloads_dir, "*ax*"))
+            if ax_files:
+                print(f"   ⚠️  Warning: Found {len(ax_files)} potentially corrupted ax dataset files in downloads")
+                print(f"   Consider manually cleaning: rm -rf {downloads_dir}/*ax*")
     
     try:
         if download_mode:
@@ -260,9 +274,8 @@ def load_mnli_raw(split="train", limit=None, download_mode=None):
             
             try:
                 # 캐시 삭제 후 강제 재다운로드
-                # trust_remote_code=False를 명시하여 안전하게 로드
                 print("   Attempting to reload MNLI dataset...")
-                ds = load_dataset("glue", "mnli", download_mode="force_redownload", trust_remote_code=False)
+                ds = load_dataset("glue", "mnli", download_mode="force_redownload")
                 print("   ✓ Successfully reloaded MNLI dataset after cache clear.")
             except Exception as e2:
                 print(f"\n   ✗ Error: Failed to reload MNLI dataset after cache clear: {e2}")
