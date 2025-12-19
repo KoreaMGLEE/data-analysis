@@ -1,4 +1,5 @@
 import torch
+import os
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
@@ -216,6 +217,18 @@ def load_mnli_raw(split="train", limit=None, download_mode=None):
     # 캐시 문제 해결을 위해 명시적으로 MNLI만 로드
     # download_mode가 None이면 기본값 사용, "reuse_cache_if_exists" 또는 "force_redownload" 가능
     from datasets.builder import DatasetGenerationError
+    import shutil
+    
+    def clear_glue_cache():
+        """GLUE 데이터셋 캐시를 삭제합니다."""
+        cache_dir = os.path.expanduser("~/.cache/huggingface/datasets/glue")
+        if os.path.exists(cache_dir):
+            print(f"   Deleting corrupted cache: {cache_dir}")
+            try:
+                shutil.rmtree(cache_dir)
+                print("   ✓ Cache deleted successfully")
+            except Exception as e:
+                print(f"   ⚠️  Warning: Could not delete cache: {e}")
     
     try:
         if download_mode:
@@ -233,22 +246,29 @@ def load_mnli_raw(split="train", limit=None, download_mode=None):
             "Couldn't cast" in error_msg or
             "DatasetGenerationError" in error_type or
             "/ax" in error_msg or  # ax 데이터셋이 섞인 경우
-            "None/ax" in error_msg
+            "None/ax" in error_msg or
+            "sentence: string" in error_msg  # ax 데이터셋의 스키마
         )
         
         if is_cache_error:
             print(f"\n⚠️  Warning: Cache corruption detected (Error type: {error_type})")
             print(f"   Error message: {error_msg[:300]}")
-            print(f"   Attempting to force redownload of MNLI dataset...")
+            print(f"   Clearing GLUE cache and forcing redownload...")
+            
+            # 캐시 삭제
+            clear_glue_cache()
             
             try:
-                # 강제 재다운로드
-                ds = load_dataset("glue", "mnli", download_mode="force_redownload")
+                # 캐시 삭제 후 강제 재다운로드
+                # trust_remote_code=False를 명시하여 안전하게 로드
+                print("   Attempting to reload MNLI dataset...")
+                ds = load_dataset("glue", "mnli", download_mode="force_redownload", trust_remote_code=False)
                 print("   ✓ Successfully reloaded MNLI dataset after cache clear.")
             except Exception as e2:
-                print(f"\n   ✗ Error: Failed to reload MNLI dataset: {e2}")
-                print(f"\n   Manual fix: Try deleting cache manually:")
+                print(f"\n   ✗ Error: Failed to reload MNLI dataset after cache clear: {e2}")
+                print(f"\n   The cache corruption is severe. Please manually delete:")
                 print(f"   rm -rf ~/.cache/huggingface/datasets/glue/")
+                print(f"   Then run the script again.")
                 raise
         else:
             # 다른 종류의 에러는 그대로 전파
