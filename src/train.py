@@ -403,7 +403,14 @@ def main():
     
     # skip_training인 경우 train_dataset_raw가 없으므로 로드
     if args.skip_training and args.checkpoint_path:
+        print("Loading training data for easy example mining...")
         train_dataset_raw = load_mnli_raw(split="train", limit=args.eval_limit)
+    elif args.skip_training:
+        raise ValueError("--skip_training requires --checkpoint_path")
+    
+    # train_dataset_raw가 정의되지 않은 경우 체크
+    if 'train_dataset_raw' not in locals():
+        raise ValueError("train_dataset_raw is not defined. This should not happen.")
     
     # 모델을 device로 이동
     model.to(args.device)

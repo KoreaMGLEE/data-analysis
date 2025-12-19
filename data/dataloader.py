@@ -201,18 +201,41 @@ def collate_fn(batch, tokenizer):
     return padded
 
 
-def load_mnli_raw(split="train", limit=None):
+def load_mnli_raw(split="train", limit=None, download_mode=None):
     """
     MNLI 데이터셋의 원본 데이터를 로드합니다.
     
     Args:
         split: 데이터셋 스플릿 ("train", "validation_matched", "validation_mismatched")
         limit: 데이터 제한 (디버깅용, None이면 전체)
+        download_mode: 다운로드 모드 (None, "reuse_cache_if_exists", "force_redownload" 등)
     
     Returns:
         data: 원본 데이터셋 (premise, hypothesis, label 포함)
     """
-    ds = load_dataset("glue", "mnli")
+    # 캐시 문제 해결을 위해 명시적으로 MNLI만 로드
+    # download_mode가 None이면 기본값 사용, "reuse_cache_if_exists" 또는 "force_redownload" 가능
+    try:
+        if download_mode:
+            ds = load_dataset("glue", "mnli", download_mode=download_mode)
+        else:
+            ds = load_dataset("glue", "mnli")
+    except (ValueError, Exception) as e:
+        # 캐시 문제가 있는 경우 재다운로드 시도
+        error_msg = str(e)
+        if "column names don't match" in error_msg or "Couldn't cast" in error_msg:
+            print(f"Warning: Cache corruption detected. Forcing redownload...")
+            print(f"Original error: {error_msg[:200]}")
+            try:
+                ds = load_dataset("glue", "mnli", download_mode="force_redownload")
+                print("Successfully reloaded dataset after cache clear.")
+            except Exception as e2:
+                print(f"Error: Failed to reload MNLI dataset: {e2}")
+                raise
+        else:
+            # 다른 종류의 에러는 그대로 전파
+            raise
+    
     data = ds[split]
     
     if limit:
