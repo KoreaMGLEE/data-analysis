@@ -252,7 +252,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-70m")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory. None이면 자동 생성: checkpoints/{model}-lr{lr}-ep{epochs}")
-    parser.add_argument("--save_total_limit", type=int, default=None, help="Maximum number of checkpoints to save (None = save all)")
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
