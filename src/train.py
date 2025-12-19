@@ -44,6 +44,8 @@ def train_model(
     num_proc=None,  # 토크나이징 멀티프로세싱 프로세스 수 (None이면 CPU 코어 수 사용)
     tokenize_batch_size=1000,  # 배치 토크나이징에 사용할 배치 크기
     save_total_limit=None,  # 최대 저장할 체크포인트 수 (None = 모두 저장)
+    exclude_ids_json=None,  # 제외할 example_id들의 JSON 파일 경로 (또는 ID 리스트 JSON)
+    exclude_id_field="example_id",  # JSON에서 사용할 ID 필드명
 ):
     """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
     
@@ -60,17 +62,60 @@ def train_model(
     )
     
     print("Loading MNLI training data...")
-    train_dataset = prepare_dataset(
-        tokenizer, 
-        split="train",
-        max_length=max_length,
-        limit=train_limit,
-        num_proc=num_proc,
-        batch_size=tokenize_batch_size,
-    )
-    
-    # 쉬운 예제 찾기용 원본 training 데이터 로드
+    # 먼저 raw 데이터 로드 (필터링을 위해)
     train_dataset_raw = load_mnli_raw(split="train", limit=train_limit)
+    
+    # exclude_ids가 있으면 필터링
+    exclude_ids_set = None
+    if exclude_ids_json:
+        import json
+        with open(exclude_ids_json, "r", encoding="utf-8") as f:
+            exclude_data = json.load(f)
+        
+        # JSON이 리스트인 경우와 딕셔너리 리스트인 경우 처리
+        if isinstance(exclude_data, list):
+            if len(exclude_data) > 0 and isinstance(exclude_data[0], dict):
+                # 딕셔너리 리스트: 특정 필드 추출
+                exclude_ids_set = set(item.get(exclude_id_field) for item in exclude_data if exclude_id_field in item)
+            else:
+                # 단순 ID 리스트
+                exclude_ids_set = set(exclude_data)
+        else:
+            raise ValueError(f"exclude_ids_json must be a list, got {type(exclude_data)}")
+        
+        original_size = len(train_dataset_raw)
+        # row index 기반으로 필터링 (example_id가 row index로 저장된 경우)
+        # exclude_ids_set의 모든 값이 0..len(dataset)-1 범위의 정수라고 가정
+        train_dataset_raw = train_dataset_raw.filter(lambda x, idx: idx not in exclude_ids_set, with_indices=True)
+        filtered_size = len(train_dataset_raw)
+        print(f"Excluded {original_size - filtered_size} examples (from {original_size} total)")
+    
+    # 필터링된/원본 raw 데이터를 토크나이즈
+    # exclude_ids가 있으면 이미 필터링된 train_dataset_raw를 사용
+    # 없으면 기존 방식으로 prepare_dataset 사용
+    if exclude_ids_set is not None:
+        # 필터링된 raw 데이터를 직접 토크나이즈
+        from data.dataloader import tokenize_fn_batch
+        train_dataset = train_dataset_raw.map(
+            lambda examples: tokenize_fn_batch(examples, tokenizer, max_length=max_length),
+            batched=True,
+            batch_size=tokenize_batch_size,
+            remove_columns=train_dataset_raw.column_names,
+            desc="Tokenizing filtered training data",
+            num_proc=num_proc,
+        )
+        # 필터링된 데이터에 대해 빈 input_ids 제거
+        train_dataset = train_dataset.filter(lambda x: len(x["input_ids"]) > 0)
+    else:
+        # exclude가 없으면 기존 방식 사용
+        train_dataset = prepare_dataset(
+            tokenizer, 
+            split="train",
+            max_length=max_length,
+            limit=train_limit,
+            num_proc=num_proc,
+            batch_size=tokenize_batch_size,
+        )
     
     # Validation 데이터도 로드 (평가용 - 토크나이즈된 버전)
     print("Loading MNLI validation data...")
@@ -314,6 +359,8 @@ def main():
     parser.add_argument("--eval_steps", type=int, default=500, help="Evaluate every N steps (only used when eval_strategy='steps')")
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every N steps")
     parser.add_argument("--save_total_limit", type=int, default=None, help="Maximum number of checkpoints to save (None = save all)")
+    parser.add_argument("--exclude_ids_json", type=str, default=None, help="Path to JSON file containing example IDs to exclude from training")
+    parser.add_argument("--exclude_id_field", type=str, default="example_id", help="Field name in JSON for example IDs (default: 'example_id')")
     
     args = parser.parse_args()
     
@@ -344,6 +391,8 @@ def main():
             num_proc=args.num_proc,
             tokenize_batch_size=args.tokenize_batch_size,
             save_total_limit=args.save_total_limit,
+            exclude_ids_json=args.exclude_ids_json,
+            exclude_id_field=args.exclude_id_field,
         )
     
     # 2. 쉬운 예제 찾기
