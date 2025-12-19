@@ -52,7 +52,9 @@ def main():
     parser.add_argument("--stage2_output_dir", type=str, default=None,
                         help="Output directory for stage2 model")
     parser.add_argument("--confidence_threshold", type=float, default=0.8,
-                        help="Confidence threshold for easy example mining")
+                        help="Confidence threshold for easy example mining (ignored if --no_confidence_check is set)")
+    parser.add_argument("--no_confidence_check", action="store_true",
+                        help="Only check if prediction is correct, ignore confidence threshold")
     
     # Training args (pass-through to train_model)
     parser.add_argument("--num_epochs", type=int, default=1)
@@ -174,6 +176,7 @@ def main():
         device=device,
         max_examples=args.eval_limit,
         batch_size=32,
+        use_confidence=not args.no_confidence_check,
     )
     
     print(f"\n  ✓ Found {len(easy_examples_stage2)} easy examples with stage2 model")

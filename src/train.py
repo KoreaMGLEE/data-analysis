@@ -256,6 +256,7 @@ def find_easy_examples(
     device="cuda",
     max_examples=None,
     batch_size=32,  # 배치 크기
+    use_confidence=True,  # True: confidence 체크, False: 정답 여부만 체크
 ):
     """
     모델이 높은 확신으로 정답을 맞추는 쉬운 예제를 찾습니다 (배치 처리로 빠름).
@@ -264,10 +265,11 @@ def find_easy_examples(
         model: 훈련된 모델
         tokenizer: 토크나이저
         dataset: 평가할 데이터셋 (HuggingFace Dataset)
-        confidence_threshold: 최소 확신 임계값 (기본 0.8)
+        confidence_threshold: 최소 확신 임계값 (기본 0.8, use_confidence=False일 때는 무시)
         device: 사용할 디바이스
         max_examples: 최대 평가할 예제 수 (None이면 전체)
         batch_size: 배치 크기 (GPU 메모리에 따라 조정)
+        use_confidence: True면 confidence 체크, False면 정답 여부만 체크
     
     Returns:
         easy_examples: 쉬운 예제 리스트 (dict 형태)
@@ -321,19 +323,39 @@ def find_easy_examples(
         for (predicted_label, confidence, label_probs), true_label_text, (orig_idx, example) in zip(
             results, true_labels, valid_indices
         ):
-            # 정답을 맞추고 confidence가 임계값 이상인 경우
-            if predicted_label == true_label_text and confidence >= confidence_threshold:
-                easy_examples.append({
-                    "premise": example["premise"],
-                    "hypothesis": example["hypothesis"],
-                    "true_label": true_label_text,
-                    "predicted_label": predicted_label,
-                    "confidence": confidence,
-                    "all_probs": label_probs,
-                    "example_id": orig_idx,
-                })
+            # 정답을 맞춘 경우
+            is_correct = predicted_label == true_label_text
+            
+            # confidence 체크 또는 정답 여부만 체크
+            if use_confidence:
+                # confidence가 임계값 이상이고 정답을 맞춘 경우
+                if is_correct and confidence >= confidence_threshold:
+                    easy_examples.append({
+                        "premise": example["premise"],
+                        "hypothesis": example["hypothesis"],
+                        "true_label": true_label_text,
+                        "predicted_label": predicted_label,
+                        "confidence": confidence,
+                        "all_probs": label_probs,
+                        "example_id": orig_idx,
+                    })
+            else:
+                # 정답을 맞춘 경우만 (confidence 무관)
+                if is_correct:
+                    easy_examples.append({
+                        "premise": example["premise"],
+                        "hypothesis": example["hypothesis"],
+                        "true_label": true_label_text,
+                        "predicted_label": predicted_label,
+                        "confidence": confidence,
+                        "all_probs": label_probs,
+                        "example_id": orig_idx,
+                    })
     
-    print(f"\nFound {len(easy_examples)} easy examples (confidence >= {confidence_threshold})")
+    if use_confidence:
+        print(f"\nFound {len(easy_examples)} easy examples (confidence >= {confidence_threshold})")
+    else:
+        print(f"\nFound {len(easy_examples)} easy examples (correct predictions only, no confidence check)")
     return easy_examples
 
 
@@ -348,7 +370,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument("--train_limit", type=int, default=None, help="Limit training examples for debugging")
-    parser.add_argument("--confidence_threshold", type=float, default=0.8)
+    parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence threshold (ignored if --no_confidence_check is set)")
+    parser.add_argument("--no_confidence_check", action="store_true", help="Only check if prediction is correct, ignore confidence threshold")
     parser.add_argument("--eval_limit", type=int, default=None, help="Number of examples to evaluate")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--skip_training", action="store_true", help="Skip training if model already exists")
@@ -423,6 +446,7 @@ def main():
         device=args.device,
         max_examples=args.eval_limit,
         batch_size=32,  # GPU 메모리에 따라 조정 가능
+        use_confidence=not args.no_confidence_check,  # no_confidence_check가 True면 False
     )
     
     # 3. 결과 저장
