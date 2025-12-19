@@ -158,33 +158,47 @@ def main():
         # Clean up temp file
         os.unlink(temp_exclude_json.name)
     
-    # Step c) Load full raw training data for easy mining
-    print(f"\n[Step c] Loading full raw training data for easy mining...")
-    full_train_raw = load_mnli_raw(split="train", limit=args.eval_limit)
-    print(f"  Loaded {len(full_train_raw)} examples for easy mining")
+    # Step c) Load Stage1 easy examples only (not full dataset)
+    print(f"\n[Step c] Loading Stage1 easy examples for re-evaluation...")
+    # 전체 train 데이터를 로드하고, Stage1 easy_examples의 example_id로 필터링
+    full_train_raw = load_mnli_raw(split="train", limit=None)  # 전체 데이터 로드
     
-    # Step d) Find easy examples with stage2 model
-    print(f"\n[Step d] Finding easy examples with stage2 model...")
+    # Stage1 easy_examples의 example_id로 필터링
+    print(f"  Filtering Stage1 easy examples (IDs: {len(exclude_ids_set)} examples)...")
+    stage1_easy_dataset = full_train_raw.filter(
+        lambda x, idx: idx in exclude_ids_set,
+        with_indices=True
+    )
+    print(f"  Loaded {len(stage1_easy_dataset)} Stage1 easy examples for re-evaluation")
+    
+    # Step d) Find real easy examples with stage2 model (among Stage1 easy examples)
+    print(f"\n[Step d] Re-evaluating Stage1 easy examples with stage2 model...")
+    print(f"  Stage2 model will re-evaluate {len(stage1_easy_dataset)} examples that 70m model found easy")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     
+    # Stage1 easy examples 중에서 Stage2 모델이 맞추는 것들만 찾기
     easy_examples_stage2 = find_easy_examples(
         model=model,
         tokenizer=tokenizer,
-        dataset=full_train_raw,
+        dataset=stage1_easy_dataset,  # Stage1 easy examples만 평가
         confidence_threshold=args.confidence_threshold,
         device=device,
-        max_examples=args.eval_limit,
+        max_examples=None,  # 전체 Stage1 easy examples 평가
         batch_size=32,
         use_confidence=not args.no_confidence_check,
     )
     
-    print(f"\n  ✓ Found {len(easy_examples_stage2)} easy examples with stage2 model")
+    print(f"\n  ✓ Found {len(easy_examples_stage2)} real easy examples (stage2 model correctly predicted)")
+    print(f"     Out of {len(stage1_easy_dataset)} Stage1 easy examples")
+    if len(stage1_easy_dataset) > 0:
+        print(f"     Success rate: {len(easy_examples_stage2)/len(stage1_easy_dataset)*100:.2f}%")
     
     # Step e) Save results
-    print(f"\n[Step e] Saving stage2 easy examples...")
+    print(f"\n[Step e] Saving real easy examples...")
     model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
-    output_json = f"true_easy_examples_conf{args.confidence_threshold}_stage2_{model_short}.json"
+    threshold_str = f"conf{args.confidence_threshold}" if not args.no_confidence_check else "correct_only"
+    output_json = f"real_easy_examples_{threshold_str}_stage2_{model_short}.json"
     
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(easy_examples_stage2, f, indent=2, ensure_ascii=False)
@@ -195,9 +209,12 @@ def main():
     print("\n" + "="*70)
     print("Stage 2 Pipeline Summary")
     print("="*70)
-    print(f"Stage1 easy examples excluded: {len(exclude_ids_set)}")
-    print(f"Remaining training data: {len(train_dataset_raw)}")
-    print(f"Stage2 easy examples found: {len(easy_examples_stage2)}")
+    print(f"Stage1 easy examples (70m model): {len(exclude_ids_set)}")
+    print(f"Training data (hard examples for 160m): {len(train_dataset_raw)}")
+    print(f"Stage1 easy examples re-evaluated: {len(stage1_easy_dataset)}")
+    print(f"Real easy examples (160m model also correct): {len(easy_examples_stage2)}")
+    if len(stage1_easy_dataset) > 0:
+        print(f"Success rate: {len(easy_examples_stage2)/len(stage1_easy_dataset)*100:.2f}%")
     print(f"Output JSON: {output_json}")
     print("="*70)
 
