@@ -147,7 +147,10 @@ def main():
         
         # Generate output_dir if not provided
         if args.stage2_output_dir is None:
-            model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
+            if args.stage2_model_name:
+                model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
+            else:
+                model_short = "unknown_model"
             args.stage2_output_dir = f"./checkpoints/stage2/{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
         
         print(f"  Output directory: {args.stage2_output_dir}")
