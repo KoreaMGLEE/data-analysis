@@ -43,6 +43,7 @@ def train_model(
     eval_strategy="epoch",  # "steps" 또는 "epoch"
     num_proc=None,  # 토크나이징 멀티프로세싱 프로세스 수 (None이면 CPU 코어 수 사용)
     tokenize_batch_size=1000,  # 배치 토크나이징에 사용할 배치 크기
+    save_total_limit=None,  # 최대 저장할 체크포인트 수 (None = 모두 저장)
 ):
     """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
     
@@ -68,9 +69,12 @@ def train_model(
         batch_size=tokenize_batch_size,
     )
     
-    # Validation 데이터도 로드 (평가용)
+    # 쉬운 예제 찾기용 원본 training 데이터 로드
+    train_dataset_raw = load_mnli_raw(split="train", limit=train_limit)
+    
+    # Validation 데이터도 로드 (평가용 - 토크나이즈된 버전)
     print("Loading MNLI validation data...")
-    val_dataset = prepare_dataset(
+    val_dataset_tokenized = prepare_dataset(
         tokenizer,
         split="validation_matched",
         max_length=max_length,
@@ -94,7 +98,7 @@ def train_model(
         save_strategy=save_strategy,  # eval_strategy와 일치
         eval_steps=eval_steps if eval_strategy == "steps" else None,
         eval_strategy=eval_strategy,  # "steps" 또는 "epoch"
-        save_total_limit=2,
+        save_total_limit=save_total_limit,  # None이면 모든 체크포인트 저장
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -112,7 +116,7 @@ def train_model(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=val_dataset,
+        eval_dataset=val_dataset_tokenized,
         data_collator=data_collator,
     )
     
@@ -123,7 +127,7 @@ def train_model(
     trainer.save_model()
     tokenizer.save_pretrained(output_dir)
     
-    return model, tokenizer, trainer
+    return model, tokenizer, trainer, train_dataset_raw
 
 
 def get_model_confidence(model, tokenizer, premise, hypothesis, device="cuda"):
@@ -247,13 +251,14 @@ def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-70m")
-    parser.add_argument("--output_dir", type=str, default="./checkpoints/pythia-70m-mnli")
+    parser.add_argument("--output_dir", type=str, default=None, help="Output directory. None이면 자동 생성: checkpoints/{model}-lr{lr}-ep{epochs}")
+    parser.add_argument("--save_total_limit", type=int, default=None, help="Maximum number of checkpoints to save (None = save all)")
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument("--train_limit", type=int, default=None, help="Limit training examples for debugging")
     parser.add_argument("--confidence_threshold", type=float, default=0.8)
-    parser.add_argument("--eval_limit", type=int, default=1000, help="Number of examples to evaluate")
+    parser.add_argument("--eval_limit", type=int, default=None, help="Number of examples to evaluate")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--skip_training", action="store_true", help="Skip training if model already exists")
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to existing checkpoint")
@@ -262,10 +267,17 @@ def main():
     parser.add_argument("--eval_strategy", type=str, default="epoch", choices=["steps", "epoch"], help="Evaluation strategy: 'steps' or 'epoch'")
     parser.add_argument("--eval_steps", type=int, default=500, help="Evaluate every N steps (only used when eval_strategy='steps')")
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every N steps")
+    parser.add_argument("--save_total_limit", type=int, default=None, help="Maximum number of checkpoints to save (None = save all)")
     
     args = parser.parse_args()
     
+    # output_dir가 지정되지 않았으면 자동으로 생성 (실험 설정 포함)
+    if args.output_dir is None:
+        model_short = args.model_name.split("/")[-1] if "/" in args.model_name else args.model_name
+        args.output_dir = f"./checkpoints/{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
+    
     print(f"Using device: {args.device}")
+    print(f"Output directory: {args.output_dir}")
     
     # 1. 모델 훈련 (또는 기존 모델 로드)
     if args.skip_training and args.checkpoint_path:
@@ -273,7 +285,7 @@ def main():
         model = AutoModelForCausalLM.from_pretrained(args.checkpoint_path)
         tokenizer = AutoTokenizer.from_pretrained(args.checkpoint_path)
     else:
-        model, tokenizer, trainer = train_model(
+        model, tokenizer, trainer, train_dataset_raw = train_model(
             model_name=args.model_name,
             output_dir=args.output_dir,
             num_train_epochs=args.num_epochs,
@@ -285,15 +297,17 @@ def main():
             eval_strategy=args.eval_strategy,
             num_proc=args.num_proc,
             tokenize_batch_size=args.tokenize_batch_size,
+            save_total_limit=args.save_total_limit,
         )
     
     # 2. 쉬운 예제 찾기
     print("\n" + "="*50)
-    print("Finding easy examples...")
+    print("Finding easy examples in training data...")
     print("="*50)
     
-    # Validation 데이터셋 로드 (원본 데이터, 토크나이즈 전)
-    val_dataset = load_mnli_raw(split="validation_matched", limit=args.eval_limit)
+    # skip_training인 경우 train_dataset_raw가 없으므로 로드
+    if args.skip_training and args.checkpoint_path:
+        train_dataset_raw = load_mnli_raw(split="train", limit=args.eval_limit)
     
     # 모델을 device로 이동
     model.to(args.device)
@@ -301,7 +315,7 @@ def main():
     easy_examples = find_easy_examples(
         model=model,
         tokenizer=tokenizer,
-        dataset=val_dataset,
+        dataset=train_dataset_raw,
         confidence_threshold=args.confidence_threshold,
         device=args.device,
         max_examples=args.eval_limit,
