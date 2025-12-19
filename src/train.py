@@ -180,7 +180,7 @@ def find_easy_examples(
     model,
     tokenizer,
     dataset,
-    confidence_threshold=0.8,
+    confidence_threshold=0.7,
     device="cuda",
     max_examples=None,
 ):
@@ -246,8 +246,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-14m")
-    parser.add_argument("--output_dir", type=str, default="./checkpoints/pythia-14m-mnli")
+    parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-70m")
+    parser.add_argument("--output_dir", type=str, default="./checkpoints/pythia-70m-mnli")
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
@@ -309,7 +309,7 @@ def main():
     
     # 3. 결과 저장
     import json
-    output_file = f"./easy_examples_confidence_{args.confidence_threshold}.json"
+    output_file = f"./easy_examples_confidence_{args.confidence_threshold}_{args.num_epochs}_{args.learning_rate}.json"
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(easy_examples, f, indent=2, ensure_ascii=False)
     

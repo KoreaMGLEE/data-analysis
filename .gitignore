@@ -41,6 +41,7 @@ checkpoints/
 *.ckpt
 *.bin
 *.safetensors
+*.sh
 
 # Data and results
 *.json
