@@ -130,54 +130,77 @@ def train_model(
     return model, tokenizer, trainer, train_dataset_raw
 
 
-def get_model_confidence(model, tokenizer, premise, hypothesis, device="cuda"):
-    """모델의 예측 확률과 확신을 계산합니다."""
+def get_model_confidence_batch(model, tokenizer, premises, hypotheses, device="cuda"):
+    """
+    배치 단위로 모델의 예측 확률과 확신을 계산합니다 (훨씬 빠름).
+    
+    Args:
+        model: 모델
+        tokenizer: 토크나이저
+        premises: 프리미스 리스트
+        hypotheses: 가설 리스트
+        device: 디바이스
+    
+    Returns:
+        results: 리스트 [(predicted_label, confidence, label_probs), ...]
+    """
     from data.dataloader import make_prompt
     
-    prompt = make_prompt(premise, hypothesis)
+    # 모든 프롬프트 생성
+    prompts = [make_prompt(p, h) for p, h in zip(premises, hypotheses)]
     
-    # prompt 토크나이즈
+    # 배치 토크나이즈
     prompt_inputs = tokenizer(
-        prompt,
+        prompts,
         return_tensors="pt",
         truncation=True,
         max_length=256,
+        padding=True,
     ).to(device)
     
     model.eval()
     with torch.no_grad():
-        # prompt에 대한 다음 토큰 예측
+        # 배치로 forward pass
         outputs = model(**prompt_inputs)
-        next_token_logits = outputs.logits[0, -1, :]  # 마지막 위치의 logits
-        next_token_probs = torch.softmax(next_token_logits, dim=-1)
+        # 각 예제의 마지막 토큰 위치의 logits
+        batch_size = outputs.logits.shape[0]
+        next_token_logits = outputs.logits[range(batch_size), -1, :]  # [batch_size, vocab_size]
+        next_token_probs = torch.softmax(next_token_logits, dim=-1)  # [batch_size, vocab_size]
     
-    # 각 라벨 텍스트의 첫 토큰 확률 계산
-    label_probs = {}
+    # 각 라벨의 첫 토큰 ID 준비
+    label_first_token_ids = {}
     for label_text in LABEL2TEXT.values():
-        # 라벨 텍스트 토크나이즈 (공백 제거 후)
         label_clean = label_text.strip()
         label_token_ids = tokenizer.encode(label_clean, add_special_tokens=False)
-        
         if len(label_token_ids) > 0:
-            # 첫 토큰의 확률을 사용
-            first_token_id = label_token_ids[0]
-            prob = next_token_probs[first_token_id].item()
-            label_probs[label_text] = prob
+            label_first_token_ids[label_text] = label_token_ids[0]
     
-    # 확률 정규화 (선택사항 - 합이 1이 되도록)
-    total_prob = sum(label_probs.values())
-    if total_prob > 0:
-        label_probs = {k: v / total_prob for k, v in label_probs.items()}
+    # 각 예제에 대해 결과 계산
+    results = []
+    for i in range(batch_size):
+        probs = next_token_probs[i]
+        
+        # 각 라벨의 확률 계산
+        label_probs = {}
+        for label_text, token_id in label_first_token_ids.items():
+            label_probs[label_text] = probs[token_id].item()
+        
+        # 확률 정규화
+        total_prob = sum(label_probs.values())
+        if total_prob > 0:
+            label_probs = {k: v / total_prob for k, v in label_probs.items()}
+        
+        # 가장 높은 확률의 라벨
+        if label_probs:
+            predicted_label = max(label_probs, key=label_probs.get)
+            confidence = label_probs[predicted_label]
+        else:
+            predicted_label = "neutral"
+            confidence = 0.0
+        
+        results.append((predicted_label, confidence, label_probs))
     
-    # 가장 높은 확률의 라벨
-    if label_probs:
-        predicted_label = max(label_probs, key=label_probs.get)
-        confidence = label_probs[predicted_label]
-    else:
-        predicted_label = "neutral"
-        confidence = 0.0
-    
-    return predicted_label, confidence, label_probs
+    return results
 
 
 def find_easy_examples(
@@ -187,9 +210,10 @@ def find_easy_examples(
     confidence_threshold=0.7,
     device="cuda",
     max_examples=None,
+    batch_size=32,  # 배치 크기
 ):
     """
-    모델이 높은 확신으로 정답을 맞추는 쉬운 예제를 찾습니다.
+    모델이 높은 확신으로 정답을 맞추는 쉬운 예제를 찾습니다 (배치 처리로 빠름).
     
     Args:
         model: 훈련된 모델
@@ -198,6 +222,7 @@ def find_easy_examples(
         confidence_threshold: 최소 확신 임계값 (기본 0.8)
         device: 사용할 디바이스
         max_examples: 최대 평가할 예제 수 (None이면 전체)
+        batch_size: 배치 크기 (GPU 메모리에 따라 조정)
     
     Returns:
         easy_examples: 쉬운 예제 리스트 (dict 형태)
@@ -212,34 +237,56 @@ def find_easy_examples(
         dataset = dataset.select(range(min(max_examples, len(dataset))))
     
     total = len(dataset)
-    print(f"Evaluating {total} examples to find easy examples...")
+    print(f"Evaluating {total} examples to find easy examples (batch_size={batch_size})...")
     
-    for i, example in enumerate(tqdm(dataset, total=total)):
-        premise = example["premise"]
-        hypothesis = example["hypothesis"]
-        true_label_idx = example["label"]
+    # 배치 단위로 처리
+    for batch_start in tqdm(range(0, total, batch_size), desc="Processing batches"):
+        batch_end = min(batch_start + batch_size, total)
+        batch_indices = list(range(batch_start, batch_end))
+        batch_data = dataset.select(batch_indices)
         
-        if true_label_idx == -1:
+        # 배치 데이터 준비
+        premises = []
+        hypotheses = []
+        true_labels = []
+        valid_indices = []
+        
+        for idx, example in enumerate(batch_data):
+            premise = example["premise"]
+            hypothesis = example["hypothesis"]
+            true_label_idx = example["label"]
+            
+            if true_label_idx == -1:
+                continue
+            
+            premises.append(premise)
+            hypotheses.append(hypothesis)
+            true_labels.append(LABEL2TEXT[int(true_label_idx)])
+            valid_indices.append((batch_start + idx, example))
+        
+        if len(premises) == 0:
             continue
         
-        true_label_text = LABEL2TEXT[int(true_label_idx)]
-        
-        # 모델 예측
-        predicted_label, confidence, label_probs = get_model_confidence(
-            model, tokenizer, premise, hypothesis, device
+        # 배치로 예측
+        results = get_model_confidence_batch(
+            model, tokenizer, premises, hypotheses, device
         )
         
-        # 정답을 맞추고 confidence가 임계값 이상인 경우
-        if predicted_label == true_label_text and confidence >= confidence_threshold:
-            easy_examples.append({
-                "premise": premise,
-                "hypothesis": hypothesis,
-                "true_label": true_label_text,
-                "predicted_label": predicted_label,
-                "confidence": confidence,
-                "all_probs": label_probs,
-                "example_id": i,
-            })
+        # 결과 처리
+        for (predicted_label, confidence, label_probs), true_label_text, (orig_idx, example) in zip(
+            results, true_labels, valid_indices
+        ):
+            # 정답을 맞추고 confidence가 임계값 이상인 경우
+            if predicted_label == true_label_text and confidence >= confidence_threshold:
+                easy_examples.append({
+                    "premise": example["premise"],
+                    "hypothesis": example["hypothesis"],
+                    "true_label": true_label_text,
+                    "predicted_label": predicted_label,
+                    "confidence": confidence,
+                    "all_probs": label_probs,
+                    "example_id": orig_idx,
+                })
     
     print(f"\nFound {len(easy_examples)} easy examples (confidence >= {confidence_threshold})")
     return easy_examples
@@ -318,6 +365,7 @@ def main():
         confidence_threshold=args.confidence_threshold,
         device=args.device,
         max_examples=args.eval_limit,
+        batch_size=32,  # GPU 메모리에 따라 조정 가능
     )
     
     # 3. 결과 저장
