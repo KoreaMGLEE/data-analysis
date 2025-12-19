@@ -4,17 +4,22 @@ Stage 2: Conflicting Proxy Training Pipeline
 이 스크립트는 stage1에서 찾은 easy examples를 제외하고 더 큰 모델로 학습한 후,
 학습된 모델로 다시 easy example mining을 수행합니다.
 
-How to run:
+How to run (with training):
     python src/pipeline_stage2_conflicting_train.py \
         --stage1_easy_json ./easy_examples_confidence_0.8_1_5e-05.json \
         --stage2_model_name EleutherAI/pythia-160m \
-        --stage2_output_dir ./checkpoints/stage2-pythia-160m \
+        --stage2_output_dir ./checkpoints/stage2/pythia-160m \
         --confidence_threshold 0.8 \
         --num_epochs 1 \
         --batch_size 16 \
-        --learning_rate 5e-5 \
-        --train_limit 2000 \
-        --eval_limit 200
+        --learning_rate 5e-5
+
+How to run (skip training, only re-evaluate):
+    python src/pipeline_stage2_conflicting_train.py \
+        --stage1_easy_json ./easy_examples_confidence_0.8_1_5e-05.json \
+        --stage2_output_dir ./checkpoints/stage2/pythia-160m-lr5e-05-ep1 \
+        --skip_training \
+        --confidence_threshold 0.8
 
 Smoke test:
     python src/pipeline_stage2_conflicting_train.py \
@@ -22,7 +27,6 @@ Smoke test:
         --stage2_model_name EleutherAI/pythia-14m \
         --confidence_threshold 0.8 \
         --train_limit 2000 \
-        --eval_limit 200 \
         --num_epochs 1
 """
 
@@ -144,7 +148,7 @@ def main():
         # Generate output_dir if not provided
         if args.stage2_output_dir is None:
             model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
-            args.stage2_output_dir = f"./checkpoints/stage2-{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
+            args.stage2_output_dir = f"./checkpoints/stage2/{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
         
         print(f"  Output directory: {args.stage2_output_dir}")
         
@@ -234,7 +238,21 @@ def main():
     
     # Step e) Save results
     print(f"\n[Step e] Saving real easy examples...")
-    model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
+    
+    # 모델명 추출: stage2_model_name이 있으면 사용, 없으면 stage2_output_dir에서 추출
+    if args.stage2_model_name:
+        model_short = args.stage2_model_name.split("/")[-1] if "/" in args.stage2_model_name else args.stage2_model_name
+    elif args.stage2_output_dir:
+        # stage2_output_dir에서 모델명 추출 (예: checkpoints/stage2/pythia-160m-lr5e-05-ep1 -> pythia-160m)
+        dir_name = os.path.basename(args.stage2_output_dir.rstrip("/"))
+        # 하이퍼파라미터 부분 제거 (-lr부터 뒤 부분)
+        if "-lr" in dir_name:
+            model_short = dir_name.split("-lr")[0]
+        else:
+            model_short = dir_name
+    else:
+        model_short = "unknown_model"
+    
     threshold_str = f"conf{args.confidence_threshold}" if not args.no_confidence_check else "correct_only"
     output_json = f"real_easy_examples_{threshold_str}_stage2_{model_short}.json"
     

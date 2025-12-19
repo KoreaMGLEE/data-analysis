@@ -365,7 +365,7 @@ def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="EleutherAI/pythia-70m")
-    parser.add_argument("--output_dir", type=str, default=None, help="Output directory. None이면 자동 생성: checkpoints/{model}-lr{lr}-ep{epochs}")
+    parser.add_argument("--output_dir", type=str, default=None, help="Output directory. None이면 자동 생성: checkpoints/stage1/{model}-lr{lr}-ep{epochs}")
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=5e-5)
@@ -390,7 +390,7 @@ def main():
     # output_dir가 지정되지 않았으면 자동으로 생성 (실험 설정 포함)
     if args.output_dir is None:
         model_short = args.model_name.split("/")[-1] if "/" in args.model_name else args.model_name
-        args.output_dir = f"./checkpoints/{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
+        args.output_dir = f"./checkpoints/stage1/{model_short}-lr{args.learning_rate}-ep{args.num_epochs}"
     
     print(f"Using device: {args.device}")
     print(f"Output directory: {args.output_dir}")
