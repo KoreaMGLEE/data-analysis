@@ -6,7 +6,7 @@ Usage:
     python data_check.py --json_file /path/to/file.json
     
 Example:
-    python data_check.py /home/user3/data-analysis/easy_examples_confidence_0.8_1_5e-05.json
+    python data_check.py /home/user3/data-analysis/easy_examples_confidence_0.7_1_5e-05.json
 """
 
 import json
@@ -80,7 +80,7 @@ def main():
     
     if json_file_path is None:
         # 기본 경로 시도
-        default_path = "/home/user3/data-analysis/easy_examples_confidence_0.8_1_5e-05.json"
+        default_path = "/home/user3/data-analysis/easy_examples_confidence_0.8_3_1e-06.json"
         if os.path.exists(default_path):
             json_file_path = default_path
             print(f"Using default path: {default_path}")
