@@ -150,6 +150,15 @@ def train_model(
         warmup_steps=100,
         fp16=False,  # 30M 모델은 fp32로도 충분히 빠름
         report_to=None,  # wandb 등 비활성화
+        # Recommended optimizer hyperparameters
+        adam_beta1=0.9,
+        adam_beta2=0.95,  # Recommended: 0.95 (default: 0.999)
+        adam_epsilon=1e-8,
+        weight_decay=0.1,  # Recommended: 0.1 (default: 0.0)
+        # Recommended scheduler
+        lr_scheduler_type="cosine",  # Recommended: cosine or linear (default: "linear")
+        # Recommended gradient clipping
+        max_grad_norm=1.0,  # Recommended: 1.0 (default: 1.0, but explicit is better)
     )
     
     # Custom data collator
