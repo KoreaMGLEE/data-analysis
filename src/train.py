@@ -451,7 +451,8 @@ def main():
     
     # 3. 결과 저장
     import json
-    output_file = f"./easy_examples_confidence_{args.confidence_threshold}_{args.num_epochs}_{args.learning_rate}.json"
+    m_name = args.model_name.split('/')[-1]
+    output_file = f"./easy_examples_confidence_{m_name}_{args.confidence_threshold}_{args.num_epochs}_{args.learning_rate}.json"
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(easy_examples, f, indent=2, ensure_ascii=False)
     
