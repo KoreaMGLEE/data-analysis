@@ -257,7 +257,9 @@ def main():
         model_short = "unknown_model"
     
     threshold_str = f"conf{args.confidence_threshold}" if not args.no_confidence_check else "correct_only"
-    output_json = f"real_easy_examples_{threshold_str}_stage2_{model_short}.json"
+
+    easy_short = args.stage1_easy_json.split('_0.8')[-1]
+    output_json = f"real_easy_examples_{threshold_str}_stage2_{model_short}_{easy_short}.json"
     
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(easy_examples_stage2, f, indent=2, ensure_ascii=False)
