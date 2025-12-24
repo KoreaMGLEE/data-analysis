@@ -68,39 +68,41 @@ def train_model(
     if train_raw_override is not None:
         train_dataset_raw = train_raw_override
         print(f"  Using externally provided training dataset ({len(train_dataset_raw)} examples)")
+        # train_raw_override를 사용할 때는 exclude_ids_json을 무시 (이미 필터링된 데이터셋)
+        exclude_ids_set = None
     else:
         # 먼저 raw 데이터 로드 (필터링을 위해)
         train_dataset_raw = load_mnli_raw(split="train", limit=train_limit)
-    
-    # exclude_ids가 있으면 필터링
-    exclude_ids_set = None
-    if exclude_ids_json:
-        import json
-        with open(exclude_ids_json, "r", encoding="utf-8") as f:
-            exclude_data = json.load(f)
         
-        # JSON이 리스트인 경우와 딕셔너리 리스트인 경우 처리
-        if isinstance(exclude_data, list):
-            if len(exclude_data) > 0 and isinstance(exclude_data[0], dict):
-                # 딕셔너리 리스트: 특정 필드 추출
-                exclude_ids_set = set(item.get(exclude_id_field) for item in exclude_data if exclude_id_field in item)
+        # exclude_ids가 있으면 필터링
+        exclude_ids_set = None
+        if exclude_ids_json:
+            import json
+            with open(exclude_ids_json, "r", encoding="utf-8") as f:
+                exclude_data = json.load(f)
+            
+            # JSON이 리스트인 경우와 딕셔너리 리스트인 경우 처리
+            if isinstance(exclude_data, list):
+                if len(exclude_data) > 0 and isinstance(exclude_data[0], dict):
+                    # 딕셔너리 리스트: 특정 필드 추출
+                    exclude_ids_set = set(item.get(exclude_id_field) for item in exclude_data if exclude_id_field in item)
+                else:
+                    # 단순 ID 리스트
+                    exclude_ids_set = set(exclude_data)
             else:
-                # 단순 ID 리스트
-                exclude_ids_set = set(exclude_data)
-        else:
-            raise ValueError(f"exclude_ids_json must be a list, got {type(exclude_data)}")
-        
-        original_size = len(train_dataset_raw)
-        # row index 기반으로 필터링 (example_id가 row index로 저장된 경우)
-        # exclude_ids_set의 모든 값이 0..len(dataset)-1 범위의 정수라고 가정
-        train_dataset_raw = train_dataset_raw.filter(lambda x, idx: idx not in exclude_ids_set, with_indices=True)
-        filtered_size = len(train_dataset_raw)
-        print(f"Excluded {original_size - filtered_size} examples (from {original_size} total)")
+                raise ValueError(f"exclude_ids_json must be a list, got {type(exclude_data)}")
+            
+            original_size = len(train_dataset_raw)
+            # row index 기반으로 필터링 (example_id가 row index로 저장된 경우)
+            # exclude_ids_set의 모든 값이 0..len(dataset)-1 범위의 정수라고 가정
+            train_dataset_raw = train_dataset_raw.filter(lambda x, idx: idx not in exclude_ids_set, with_indices=True)
+            filtered_size = len(train_dataset_raw)
+            print(f"Excluded {original_size - filtered_size} examples (from {original_size} total)")
     
     # 필터링된/원본 raw 데이터를 토크나이즈
-    # exclude_ids가 있으면 이미 필터링된 train_dataset_raw를 사용
-    # 없으면 기존 방식으로 prepare_dataset 사용
-    if exclude_ids_set is not None:
+    # exclude_ids가 있거나 train_raw_override를 사용한 경우 직접 토크나이즈
+    # (둘 다 필터링된 데이터셋이므로 직접 토크나이즈해야 함)
+    if exclude_ids_set is not None or train_raw_override is not None:
         # 필터링된 raw 데이터를 직접 토크나이즈
         from data.dataloader import tokenize_fn_batch
         train_dataset = train_dataset_raw.map(
