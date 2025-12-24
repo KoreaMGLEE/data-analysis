@@ -28,6 +28,7 @@ import json
 import argparse
 import torch
 import numpy as np
+import csv
 
 # 상위 폴더를 path에 추가 (프로젝트 루트)
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -220,6 +221,12 @@ def main():
     
     print(f"  ✓ Evaluated {len(before_map)} examples")
     
+    # Step D 끝: before_results 전체 저장
+    before_path = os.path.join(args.output_dir, "easy_eval_before_phase2.json")
+    with open(before_path, "w", encoding="utf-8") as f:
+        json.dump(before_results, f, indent=2, ensure_ascii=False)
+    print(f"  ✓ Saved before evaluation results to: {before_path}")
+    
     # Step E: Phase 2 학습 (hard_set로 이어서 학습)
     print(f"\n[Step E] Phase 2: Continuing training on hard set...")
     phase2_output_dir = os.path.join(args.output_dir, "phase2_hard")
@@ -269,6 +276,54 @@ def main():
     after_map = {result["example_id"]: result for result in after_results}
     
     print(f"  ✓ Evaluated {len(after_map)} examples")
+    
+    # Step F 끝: after_results 전체 저장
+    after_path = os.path.join(args.output_dir, "easy_eval_after_phase2.json")
+    with open(after_path, "w", encoding="utf-8") as f:
+        json.dump(after_results, f, indent=2, ensure_ascii=False)
+    print(f"  ✓ Saved after evaluation results to: {after_path}")
+    
+    # Delta stats 계산 및 저장 (Step G 시작 전)
+    print(f"\n[Step G-0] Computing delta statistics...")
+    all_ids = set(before_map.keys()) & set(after_map.keys())
+    delta_stats = []
+    
+    for example_id in all_ids:
+        before_stats = before_map[example_id]
+        after_stats = after_map[example_id]
+        
+        conf_drop = before_stats["true_prob"] - after_stats["true_prob"]
+        loss_increase = after_stats["nll"] - before_stats["nll"]
+        
+        delta_stats.append({
+            "example_id": example_id,
+            "true_label": before_stats["true_label"],
+            "before_true_prob": before_stats["true_prob"],
+            "after_true_prob": after_stats["true_prob"],
+            "conf_drop": conf_drop,
+            "before_nll": before_stats["nll"],
+            "after_nll": after_stats["nll"],
+            "loss_increase": loss_increase,
+            "before_correct": before_stats["correct"],
+            "after_correct": after_stats["correct"],
+            "before_predicted": before_stats["predicted_label"],
+            "after_predicted": after_stats["predicted_label"],
+        })
+    
+    # Delta stats를 JSON과 CSV 두 형식으로 저장
+    delta_stats_path_json = os.path.join(args.output_dir, "delta_stats.json")
+    with open(delta_stats_path_json, "w", encoding="utf-8") as f:
+        json.dump(delta_stats, f, indent=2, ensure_ascii=False)
+    print(f"  ✓ Saved delta statistics (JSON) to: {delta_stats_path_json}")
+    
+    # CSV로도 저장 (분석 편의성)
+    delta_stats_path_csv = os.path.join(args.output_dir, "delta_stats.csv")
+    if delta_stats:
+        with open(delta_stats_path_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=delta_stats[0].keys())
+            writer.writeheader()
+            writer.writerows(delta_stats)
+        print(f"  ✓ Saved delta statistics (CSV) to: {delta_stats_path_csv}")
     
     # Step G: True-Easy 선별 로직
     print(f"\n[Step G] Selecting true-easy examples based on stability...")
