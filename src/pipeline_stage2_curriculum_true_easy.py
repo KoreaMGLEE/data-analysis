@@ -147,15 +147,19 @@ def main():
     
     print(f"  Full training data size: {len(full_train_raw)}")
     
-    # easy_set: 인덱스가 easy_ids_set에 포함되는 예제들
-    easy_set = full_train_raw.filter(
-        lambda x, idx: idx in easy_ids_set,
+    # easy_set: select() + map()으로 example_id 컬럼을 명시적으로 추가
+    sorted_easy_ids = sorted(list(easy_ids_set))
+    easy_set = full_train_raw.select(sorted_easy_ids)
+    easy_set = easy_set.map(
+        lambda x, idx: {"example_id": sorted_easy_ids[idx]},
         with_indices=True
     )
     
     # hard_set: 나머지 예제들
-    hard_set = full_train_raw.filter(
-        lambda x, idx: idx not in easy_ids_set,
+    hard_ids = [i for i in range(len(full_train_raw)) if i not in easy_ids_set]
+    hard_set = full_train_raw.select(hard_ids)
+    hard_set = hard_set.map(
+        lambda x, idx: {"example_id": hard_ids[idx]},
         with_indices=True
     )
     
@@ -192,14 +196,13 @@ def main():
     # Step D: Phase 1 이후, easy_set 평가값(before) 저장
     print(f"\n[Step D] Evaluating easy set after Phase 1 (before Phase 2)...")
     
+    # eval_easy_set: easy_set에서 평가할 부분만 선택
+    # select()는 컬럼을 유지하므로 example_id도 그대로 유지됨
     eval_easy_set = easy_set
     if args.eval_limit_easyset:
         eval_easy_set = easy_set.select(range(min(args.eval_limit_easyset, len(easy_set))))
     
     print(f"  Evaluating {len(eval_easy_set)} examples from easy set...")
-    
-    # 원본 인덱스 매핑 준비 (필터링된 dataset 인덱스 -> 원본 인덱스)
-    sorted_easy_ids = sorted(list(easy_ids_set))
     
     model_phase1.to(device)
     before_results = evaluate_examples(
@@ -211,16 +214,9 @@ def main():
         max_examples=None,
     )
     
-    # before_results의 example_id를 원본 인덱스로 변환
-    # evaluate_examples에서 반환된 example_id는 eval_easy_set의 인덱스 (0부터 시작)
-    # 이를 원본 full_train_raw의 인덱스로 변환
-    before_map = {}
-    for result in before_results:
-        eval_idx = result["example_id"]  # eval_easy_set의 인덱스 (0부터 시작)
-        if eval_idx < len(sorted_easy_ids):
-            original_id = sorted_easy_ids[eval_idx]
-            result["example_id"] = original_id  # 원본 인덱스로 변경
-            before_map[original_id] = result
+    # before_map 구성: example_id -> stats
+    # evaluate_examples()가 dataset의 example_id 컬럼을 읽어서 반환하므로 변환 불필요
+    before_map = {result["example_id"]: result for result in before_results}
     
     print(f"  ✓ Evaluated {len(before_map)} examples")
     
@@ -268,14 +264,9 @@ def main():
         max_examples=None,
     )
     
-    # after_results의 example_id도 원본 인덱스로 변환
-    after_map = {}
-    for result in after_results:
-        eval_idx = result["example_id"]  # eval_easy_set의 인덱스 (0부터 시작)
-        if eval_idx < len(sorted_easy_ids):
-            original_id = sorted_easy_ids[eval_idx]
-            result["example_id"] = original_id  # 원본 인덱스로 변경
-            after_map[original_id] = result
+    # after_map 구성: example_id -> stats
+    # evaluate_examples()가 dataset의 example_id 컬럼을 읽어서 반환하므로 변환 불필요
+    after_map = {result["example_id"]: result for result in after_results}
     
     print(f"  ✓ Evaluated {len(after_map)} examples")
     

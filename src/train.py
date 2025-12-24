@@ -338,6 +338,12 @@ def evaluate_examples(
             if true_label_idx is None or true_label_idx == -1:
                 continue
             
+            # example_id가 있으면 사용, 없으면 인덱스 사용
+            if "example_id" in example:
+                example_id = example["example_id"]
+            else:
+                example_id = batch_start + idx
+            
             premises.append(premise)
             hypotheses.append(hypothesis)
             # true_label을 문자열로 정규화 (int -> str 매핑)
@@ -346,7 +352,7 @@ def evaluate_examples(
             else:
                 true_label_text = str(true_label_idx).strip()
             true_labels.append(true_label_text)
-            valid_indices.append(batch_start + idx)  # example_id는 원본 인덱스
+            valid_indices.append(example_id)
         
         if len(premises) == 0:
             continue
