@@ -46,6 +46,8 @@ def train_model(
     save_total_limit=None,  # 최대 저장할 체크포인트 수 (None = 모두 저장)
     exclude_ids_json=None,  # 제외할 example_id들의 JSON 파일 경로 (또는 ID 리스트 JSON)
     exclude_id_field="example_id",  # JSON에서 사용할 ID 필드명
+    train_raw_override=None,  # 외부에서 넘겨준 raw training dataset (None이면 내부에서 로드)
+    eval_raw_override=None,  # 외부에서 넘겨준 raw evaluation dataset (None이면 내부에서 로드)
 ):
     """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
     
@@ -62,8 +64,13 @@ def train_model(
     )
     
     print("Loading MNLI training data...")
-    # 먼저 raw 데이터 로드 (필터링을 위해)
-    train_dataset_raw = load_mnli_raw(split="train", limit=train_limit)
+    # 외부에서 넘겨준 데이터셋이 있으면 사용, 없으면 내부에서 로드
+    if train_raw_override is not None:
+        train_dataset_raw = train_raw_override
+        print(f"  Using externally provided training dataset ({len(train_dataset_raw)} examples)")
+    else:
+        # 먼저 raw 데이터 로드 (필터링을 위해)
+        train_dataset_raw = load_mnli_raw(split="train", limit=train_limit)
     
     # exclude_ids가 있으면 필터링
     exclude_ids_set = None
@@ -119,14 +126,27 @@ def train_model(
     
     # Validation 데이터도 로드 (평가용 - 토크나이즈된 버전)
     print("Loading MNLI validation data...")
-    val_dataset_tokenized = prepare_dataset(
-        tokenizer,
-        split="validation_matched",
-        max_length=max_length,
-        limit=1000,  # validation은 작은 샘플만 사용
-        num_proc=num_proc,
-        batch_size=tokenize_batch_size,
-    )
+    if eval_raw_override is not None:
+        print(f"  Using externally provided validation dataset ({len(eval_raw_override)} examples)")
+        from data.dataloader import tokenize_fn_batch
+        val_dataset_tokenized = eval_raw_override.map(
+            lambda examples: tokenize_fn_batch(examples, tokenizer, max_length=max_length),
+            batched=True,
+            batch_size=tokenize_batch_size,
+            remove_columns=eval_raw_override.column_names,
+            desc="Tokenizing validation data",
+            num_proc=num_proc,
+        )
+        val_dataset_tokenized = val_dataset_tokenized.filter(lambda x: len(x["input_ids"]) > 0)
+    else:
+        val_dataset_tokenized = prepare_dataset(
+            tokenizer,
+            split="validation_matched",
+            max_length=max_length,
+            limit=1000,  # validation은 작은 샘플만 사용
+            num_proc=num_proc,
+            batch_size=tokenize_batch_size,
+        )
     
     # Training arguments
     # load_best_model_at_end=True를 사용하려면 save_strategy와 eval_strategy가 일치해야 함
@@ -254,6 +274,122 @@ def get_model_confidence_batch(model, tokenizer, premises, hypotheses, device="c
         
         results.append((predicted_label, confidence, label_probs))
     
+    return results
+
+
+def evaluate_examples(
+    model,
+    tokenizer,
+    dataset,
+    device="cuda",
+    batch_size=32,
+    max_examples=None,
+):
+    """
+    전체 dataset에 대해 평가 결과를 계산하여 반환합니다.
+    
+    Args:
+        model: 평가할 모델
+        tokenizer: 토크나이저
+        dataset: 평가할 데이터셋 (HuggingFace Dataset)
+        device: 사용할 디바이스
+        batch_size: 배치 크기
+        max_examples: 최대 평가할 예제 수 (None이면 전체)
+    
+    Returns:
+        results: list[dict], 각 dict에는 다음 키 포함:
+            - example_id: int (dataset의 인덱스)
+            - true_label: str (정규화된 라벨 문자열)
+            - predicted_label: str (예측된 라벨 문자열)
+            - all_probs: dict[str, float] (라벨별 확률)
+            - true_prob: float (정답 라벨의 확률)
+            - nll: float (negative log likelihood = -log(true_prob))
+            - correct: bool (예측이 정답과 일치하는지)
+    """
+    model.to(device)
+    model.eval()
+    
+    results = []
+    
+    # max_examples가 지정된 경우 데이터셋 제한
+    if max_examples:
+        dataset = dataset.select(range(min(max_examples, len(dataset))))
+    
+    total = len(dataset)
+    print(f"Evaluating {total} examples (batch_size={batch_size})...")
+    
+    # 배치 단위로 처리
+    for batch_start in tqdm(range(0, total, batch_size), desc="Evaluating batches"):
+        batch_end = min(batch_start + batch_size, total)
+        batch_indices = list(range(batch_start, batch_end))
+        batch_data = dataset.select(batch_indices)
+        
+        # 배치 데이터 준비
+        premises = []
+        hypotheses = []
+        true_labels = []
+        valid_indices = []
+        
+        for idx, example in enumerate(batch_data):
+            premise = example["premise"]
+            hypothesis = example["hypothesis"]
+            true_label_idx = example.get("label", None)
+            
+            if true_label_idx is None or true_label_idx == -1:
+                continue
+            
+            premises.append(premise)
+            hypotheses.append(hypothesis)
+            # true_label을 문자열로 정규화 (int -> str 매핑)
+            if isinstance(true_label_idx, int):
+                true_label_text = LABEL2TEXT[int(true_label_idx)]
+            else:
+                true_label_text = str(true_label_idx).strip()
+            true_labels.append(true_label_text)
+            valid_indices.append(batch_start + idx)  # example_id는 원본 인덱스
+        
+        if len(premises) == 0:
+            continue
+        
+        # 배치로 예측
+        batch_results = get_model_confidence_batch(
+            model, tokenizer, premises, hypotheses, device
+        )
+        
+        # 결과 처리
+        for (predicted_label, confidence, label_probs), true_label_text, example_id in zip(
+            batch_results, true_labels, valid_indices
+        ):
+            # true_label과 predicted_label 정규화 (공백 제거)
+            true_label_clean = true_label_text.strip()
+            predicted_label_clean = predicted_label.strip()
+            
+            # all_probs의 키도 정규화
+            label_probs_clean = {k.strip(): v for k, v in label_probs.items()}
+            
+            # 정답 라벨의 확률 (정규화된 키 사용)
+            true_prob = label_probs_clean.get(true_label_clean, 0.0)
+            if true_prob <= 0.0:
+                # 정답 라벨이 all_probs에 없는 경우 (매우 드물지만)
+                true_prob = 1e-10  # 0으로 나누기 방지
+            
+            # Negative log likelihood
+            nll = -np.log(true_prob) if true_prob > 0 else float('inf')
+            
+            # 예측 정확도
+            is_correct = predicted_label_clean == true_label_clean
+            
+            results.append({
+                "example_id": example_id,
+                "true_label": true_label_clean,
+                "predicted_label": predicted_label_clean,
+                "all_probs": label_probs_clean,
+                "true_prob": true_prob,
+                "nll": nll,
+                "correct": is_correct,
+            })
+    
+    print(f"  Evaluated {len(results)} examples")
     return results
 
 
