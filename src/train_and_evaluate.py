@@ -7,23 +7,20 @@ Train and Evaluate 3 Scenarios
 3. True-easy → Easy → Hard (curriculum, no overlap) → Evaluate on MNLI dev + HANS
 
 Usage:
-    # Scenario 1
+    # Scenario 1 (default: Qwen/Qwen2.5-0.5B, GLUE hyperparameters)
     python src/train_and_evaluate.py \
         --scenario 1 \
-        --model_name EleutherAI/pythia-410m \
         --output_dir ./checkpoints/scenario1_full
 
     # Scenario 2
     python src/train_and_evaluate.py \
         --scenario 2 \
-        --model_name EleutherAI/pythia-410m \
         --true_easy_json /home/user3/data-analysis/true_easy_examples_conf0.4_drop0.1_loss0.5_stage2_curriculum_pythia-410m.json \
         --output_dir ./checkpoints/scenario2_true_easy_full
 
     # Scenario 3
     python src/train_and_evaluate.py \
         --scenario 3 \
-        --model_name EleutherAI/pythia-410m \
         --true_easy_json /home/user3/data-analysis/true_easy_examples_conf0.4_drop0.1_loss0.5_stage2_curriculum_pythia-410m.json \
         --stage1_easy_json /home/user3/data-analysis/easy_examples_confidence_pythia-160m_0.8_3_5e-05.json \
         --output_dir ./checkpoints/scenario3_curriculum_3stage
@@ -59,7 +56,10 @@ def scenario1_full_mnli(args):
     print(f"\n[Training] Training on full MNLI training data...")
     print(f"  Model: {args.model_name}")
     print(f"  Output: {output_dir}")
-    print(f"  Epochs: {args.num_epochs}, LR: {args.learning_rate}, Batch size: {args.batch_size}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+    print(f"  Epochs: {args.num_epochs}, LR: {args.learning_rate}")
+    print(f"  Batch size per device: {args.batch_size}, Gradient accumulation: {args.gradient_accumulation_steps}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=args.model_name,
@@ -74,6 +74,7 @@ def scenario1_full_mnli(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=None,  # Full dataset
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"\n✓ Training completed")
@@ -155,6 +156,9 @@ def scenario2_true_easy_full(args):
     
     print(f"\n[Phase 1] Training on true-easy set (1 epoch)...")
     print(f"  Output: {output_dir_phase1}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+    print(f"  Batch size per device: {args.batch_size}, Gradient accumulation: {args.gradient_accumulation_steps}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=args.model_name,
@@ -169,6 +173,7 @@ def scenario2_true_easy_full(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=true_easy_set,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"  ✓ Phase 1 training completed")
@@ -180,7 +185,9 @@ def scenario2_true_easy_full(args):
     print(f"\n[Phase 2] Continuing training on full MNLI data...")
     print(f"  Output: {output_dir_phase2}")
     print(f"  Continuing from: {output_dir_phase1}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
     print(f"  Epochs: {args.num_epochs}, LR: {args.learning_rate}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=output_dir_phase1,  # Continue from phase 1
@@ -195,6 +202,7 @@ def scenario2_true_easy_full(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=None,  # Full dataset
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"  ✓ Phase 2 training completed")
@@ -306,7 +314,9 @@ def scenario3_curriculum_3stage(args):
     
     print(f"\n[Phase 1] Training on true-easy set...")
     print(f"  Output: {output_dir_phase1}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
     print(f"  Epochs: {args.num_epochs_easy}, LR: {args.lr_easy}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=args.model_name,
@@ -321,6 +331,7 @@ def scenario3_curriculum_3stage(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=true_easy_set,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"  ✓ Phase 1 training completed")
@@ -332,7 +343,9 @@ def scenario3_curriculum_3stage(args):
     print(f"\n[Phase 2] Continuing training on easy set...")
     print(f"  Output: {output_dir_phase2}")
     print(f"  Continuing from: {output_dir_phase1}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
     print(f"  Epochs: {args.num_epochs_easy}, LR: {args.lr_easy}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=output_dir_phase1,
@@ -347,6 +360,7 @@ def scenario3_curriculum_3stage(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=easy_set,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"  ✓ Phase 2 training completed")
@@ -358,7 +372,9 @@ def scenario3_curriculum_3stage(args):
     print(f"\n[Phase 3] Continuing training on hard set...")
     print(f"  Output: {output_dir_phase3}")
     print(f"  Continuing from: {output_dir_phase2}")
+    effective_batch_size = args.batch_size * args.gradient_accumulation_steps
     print(f"  Epochs: {args.num_epochs_hard}, LR: {args.lr_hard}")
+    print(f"  Effective batch size: {effective_batch_size}")
     
     model, tokenizer, trainer, _ = train_model(
         model_name=output_dir_phase2,
@@ -373,6 +389,7 @@ def scenario3_curriculum_3stage(args):
         tokenize_batch_size=args.tokenize_batch_size,
         save_total_limit=args.save_total_limit,
         train_raw_override=hard_set,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     
     print(f"  ✓ Phase 3 training completed")
@@ -417,8 +434,8 @@ def main():
                         help="Scenario number: 1=Full MNLI, 2=True-easy→Full, 3=True-easy→Easy→Hard")
     
     # Model args
-    parser.add_argument("--model_name", type=str, required=True,
-                        help="Base model name")
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-0.5B",
+                        help="Base model name (default: Qwen/Qwen2.5-0.5B, GLUE standard)")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for checkpoints")
     
@@ -428,11 +445,15 @@ def main():
     parser.add_argument("--stage1_easy_json", type=str, default=None,
                         help="Path to stage1 easy examples JSON (required for scenario 3)")
     
-    # Training args (common)
+    # Training args (common) - Qwen2.5 standard hyperparameters
     parser.add_argument("--num_epochs", type=int, default=3,
                         help="Number of epochs for full training")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--batch_size", type=int, default=8,
+                        help="Batch size per device (Qwen2.5 standard: 8, with gradient_accumulation_steps=2, effective batch size=16)")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=2,
+                        help="Gradient accumulation steps (effective batch size = batch_size * gradient_accumulation_steps)")
+    parser.add_argument("--learning_rate", type=float, default=2e-5,
+                        help="Learning rate (Qwen2.5 fine-tuning standard: 2e-5)")
     parser.add_argument("--num_proc", type=int, default=16)
     parser.add_argument("--tokenize_batch_size", type=int, default=1000)
     parser.add_argument("--eval_strategy", type=str, default="epoch", choices=["steps", "epoch"])
@@ -445,10 +466,10 @@ def main():
                         help="Number of epochs for easy set training (scenario 3)")
     parser.add_argument("--num_epochs_hard", type=int, default=1,
                         help="Number of epochs for hard set training (scenario 3)")
-    parser.add_argument("--lr_easy", type=float, default=5e-5,
-                        help="Learning rate for easy set training (scenario 3)")
-    parser.add_argument("--lr_hard", type=float, default=5e-5,
-                        help="Learning rate for hard set training (scenario 3)")
+    parser.add_argument("--lr_easy", type=float, default=2e-5,
+                        help="Learning rate for easy set training (Qwen2.5 standard: 2e-5)")
+    parser.add_argument("--lr_hard", type=float, default=2e-5,
+                        help="Learning rate for hard set training (Qwen2.5 standard: 2e-5)")
     
     # Evaluation args
     parser.add_argument("--eval_mnli_dev", action="store_true", default=True,

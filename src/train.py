@@ -31,11 +31,11 @@ from data.dataloader import (
 
 
 def train_model(
-    model_name="EleutherAI/pythia-30m",
-    output_dir="../checkpoints/pythia-30m-mnli",
+    model_name="Qwen/Qwen2.5-0.5B",
+    output_dir="../checkpoints/qwen2.5-0.5b-mnli",
     num_train_epochs=1,
-    batch_size=16,
-    learning_rate=5e-5,
+    batch_size=8,
+    learning_rate=2e-5,
     max_length=256,
     train_limit=None,  # 디버깅용: 훈련 데이터 제한
     save_steps=500,
@@ -48,19 +48,22 @@ def train_model(
     exclude_id_field="example_id",  # JSON에서 사용할 ID 필드명
     train_raw_override=None,  # 외부에서 넘겨준 raw training dataset (None이면 내부에서 로드)
     eval_raw_override=None,  # 외부에서 넘겨준 raw evaluation dataset (None이면 내부에서 로드)
+    gradient_accumulation_steps=2,  # Gradient accumulation steps (effective batch size = batch_size * gradient_accumulation_steps)
 ):
-    """Pythia 30M 모델을 MNLI 데이터로 훈련합니다."""
+    """모델을 MNLI 데이터로 훈련합니다."""
     
     print(f"Loading model: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, trust_remote_code=True)
     
-    # pad token 설정
+    # pad token 설정 (Qwen 모델의 경우)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         dtype=torch.float32,
+        trust_remote_code=True,
     )
     
     print("Loading MNLI training data...")
@@ -169,18 +172,20 @@ def train_model(
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        warmup_steps=100,
-        fp16=False,  # 30M 모델은 fp32로도 충분히 빠름
+        warmup_steps=100,  # Can be adjusted based on total steps
+        fp16=False,
         report_to=None,  # wandb 등 비활성화
-        # Recommended optimizer hyperparameters
+        # Gradient accumulation (effective batch size = batch_size * gradient_accumulation_steps)
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        # Qwen2.5 standard optimizer hyperparameters
         adam_beta1=0.9,
-        adam_beta2=0.95,  # Recommended: 0.95 (default: 0.999)
-        adam_epsilon=1e-8,
-        weight_decay=0.1,  # Recommended: 0.1 (default: 0.0)
-        # Recommended scheduler
-        lr_scheduler_type="cosine",  # Recommended: cosine or linear (default: "linear")
-        # Recommended gradient clipping
-        max_grad_norm=1.0,  # Recommended: 1.0 (default: 1.0, but explicit is better)
+        adam_beta2=0.999,
+        adam_epsilon=1e-6,  # Qwen2.5 often uses 1e-6
+        weight_decay=0.01,
+        # Qwen2.5 standard scheduler
+        lr_scheduler_type="cosine",  # Qwen2.5 often uses cosine
+        # Gradient clipping
+        max_grad_norm=1.0,  # Standard for stability
     )
     
     # Custom data collator

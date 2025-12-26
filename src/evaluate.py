@@ -276,11 +276,12 @@ def main():
     
     # 모델 로드
     print(f"\nLoading model from {args.model_path}...")
-    model = AutoModelForCausalLM.from_pretrained(args.model_path)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    model = AutoModelForCausalLM.from_pretrained(args.model_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     
     model.to(device)
     model.eval()
